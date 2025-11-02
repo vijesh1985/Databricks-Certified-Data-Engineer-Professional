@@ -16,6 +16,7 @@ display(files)
 
 # COMMAND ----------
 
+print(f"{bookstore.dataset_path}")
 df_raw = spark.read.json(f"{bookstore.dataset_path}/kafka-raw")
 display(df_raw)
 
@@ -28,17 +29,17 @@ def process_bronze():
     schema = "key BINARY, value BINARY, topic STRING, partition LONG, offset LONG, timestamp LONG"
 
     query = (spark.readStream
-                        .format("cloudFiles")
+                        .format("cloudFiles")   # Uses Databricks Auto Loader, which incrementally reads new files.
                         .option("cloudFiles.format", "json")
                         .schema(schema)
-                        .load(f"{bookstore.dataset_path}/kafka-raw")
+                        .load(f"{bookstore.dataset_path}/kafka-raw")    # Reads files from a raw zone path (e.g., ADLS folder).
                         .withColumn("timestamp", (F.col("timestamp")/1000).cast("timestamp"))  
                         .withColumn("year_month", F.date_format("timestamp", "yyyy-MM"))
                   .writeStream
-                      .option("checkpointLocation", f"{bookstore.checkpoint_path}/bronze")
-                      .option("mergeSchema", True)
+                      .option("checkpointLocation", f"{bookstore.checkpoint_path}/bronze")  #Saves progress metadata (which files were processed) for **exactly-once** reliability
+                      .option("mergeSchema", True)  # Allows schema evolution if new columns appear
                       .partitionBy("topic", "year_month")
-                      .trigger(availableNow=True)
+                      .trigger(availableNow=True)   # Process all data in multiple micro-batches and then stops
                       .table("bronze"))
     
     query.awaitTermination()
